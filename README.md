@@ -1,6 +1,6 @@
 # Blueprints CLI
 
-Blueprints CLI is a companion tool for Spec‑Driven Development / Agentic Engineering. You describe what the software must do in clear, human‑readable blueprints, and LLM agents generate the code that implements those requirements and specs. This shifts developer time toward defining the intent (the what and the why) while agents perform the repetitive implementation work.
+Blueprints CLI is a tool for Spec‑Driven Development / Agentic Engineering. You describe what the software must do in clear, human‑readable blueprints, and LLM agents generate the code that implements those requirements and specs. This shifts developer time toward defining the intent (the what and the why) while agents perform the repetitive implementation work.
 
 ## Why Rust + Codex CLI
 
@@ -13,7 +13,7 @@ This system targets Rust projects and is designed to be driven by the Codex CLI.
 
 ## An Experiment
 
-This project is an experiment in raising the abstraction level of software development. Just as the industry moved from assembly to C with a compiler, we explore moving from today’s high‑level languages (Rust, C, etc.) to structured natural language “blueprints.” The aspiration is that code generation becomes “just another step” before compile and deploy, where the blueprints become the new source of truth and the code is regenerated for each release.
+This project is an experiment in raising the abstraction level of software development. Just as the industry moved from assembly to C with a compiler, we explore moving from today’s high‑level languages (Rust, C, etc.) to structured natural language blueprints. The aspiration is that code generation becomes just another step before compile and deploy, where the blueprints become the new source of truth and the code is regenerated for each release.
 
 ## Getting Started
 
