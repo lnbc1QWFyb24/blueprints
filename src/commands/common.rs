@@ -1,7 +1,7 @@
 use crate::logging::log_codex;
 use anyhow::{Context, Result, anyhow};
-use clap::ValueEnum;
 use std::{
+    collections::{HashSet, VecDeque},
     env, fs,
     io::{self, BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
@@ -17,13 +17,6 @@ pub(crate) const ERROR_TOKEN: &str = "__BLUEPRINTS_ERROR__";
 
 static SUMMARIZE_ENABLED: OnceLock<bool> = OnceLock::new();
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
-#[value(rename_all = "lower")]
-pub(crate) enum WorkflowMode {
-    Design,
-    Update,
-}
-
 pub(crate) fn set_summarize_enabled(enabled: bool) {
     let _ = SUMMARIZE_ENABLED.set(enabled);
 }
@@ -31,6 +24,21 @@ pub(crate) fn set_summarize_enabled(enabled: bool) {
 fn summarize_enabled() -> bool {
     *SUMMARIZE_ENABLED.get_or_init(|| false)
 }
+
+const BLUEPRINTS_DIR_NAME: &str = "blueprints";
+const IGNORED_SEARCH_DIRS: &[&str] = &[
+    ".blueprints",
+    ".direnv",
+    ".git",
+    ".idea",
+    ".venv",
+    ".vscode",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "target",
+];
 
 pub(crate) struct WorkflowConfig {
     pub(crate) max_builder_iters: usize,
@@ -80,272 +88,280 @@ impl Tokens {
 }
 
 pub(crate) struct BlueprintsContext {
-    package: String,
     blueprints_dir: PathBuf,
 }
 
 impl BlueprintsContext {
-    pub(crate) fn module(&self) -> &str {
-        &self.package
-    }
-
-    pub(crate) fn join(&self, file: &str) -> PathBuf {
-        self.blueprints_dir.join(file)
-    }
-
-    pub(crate) fn apply(&self, template: impl AsRef<str>) -> String {
+    pub(crate) fn dir_token_value(&self) -> String {
         let dir_cow = self.blueprints_dir.to_string_lossy();
-        let dir = if self.blueprints_dir.is_relative()
+        if self.blueprints_dir.is_relative()
             && !dir_cow.starts_with("./")
             && !dir_cow.starts_with("../")
         {
             format!("./{dir_cow}")
         } else {
             dir_cow.into_owned()
-        };
+        }
+    }
 
-        template.as_ref().replace("${BLUEPRINTS_DIR}", &dir)
+    pub(crate) fn join(&self, file: &str) -> PathBuf {
+        self.blueprints_dir.join(file)
     }
 }
 
-pub(crate) fn prepare_blueprints(
-    crate_name: Option<&str>,
-    module_path: Option<&str>,
-) -> Result<BlueprintsContext> {
-    let original_cwd =
-        env::current_dir().context("failed to determine current working directory")?;
-    let workspace_root = {
-        let root = find_workspace_root()?;
-        root.canonicalize().unwrap_or(root)
-    };
-    env::set_current_dir(&workspace_root).context("failed to switch to workspace root")?;
+fn locate_blueprints_dir(workspace_root: &Path, module: &str) -> Option<PathBuf> {
+    let module_path = Path::new(module);
 
-    let module_dir = module_path
-        .map(|module| resolve_module_dir(&workspace_root, module))
-        .transpose()?;
-
-    let explicit_crate_dir = crate_name
-        .map(|name| resolve_crate_dir(&workspace_root, name))
-        .transpose()?;
-
-    let crate_root = if let Some(dir) = explicit_crate_dir.clone() {
-        Some(dir)
-    } else if let Some(module_dir) = &module_dir {
-        find_crate_root(module_dir, &workspace_root)
-    } else {
-        find_crate_root(&original_cwd, &workspace_root)
-    };
-
-    let target_path = module_dir
-        .clone()
-        .or(explicit_crate_dir.clone())
-        .unwrap_or_else(|| original_cwd.clone());
-
-    let mut search_roots = Vec::new();
-
-    if let Some(dir) = module_dir.clone() {
-        search_roots.push(dir);
-    }
-
-    if let Some(root) = crate_root.as_ref()
-        && search_roots.iter().all(|p| p != root)
+    if let Some(found) = resolve_existing_dir(workspace_root, module_path.join(BLUEPRINTS_DIR_NAME))
     {
-        search_roots.push(root.clone());
+        return Some(found);
     }
 
-    if search_roots.is_empty() {
-        search_roots.push(target_path.clone());
+    let module_leaf = module_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(module);
+
+    let mut queue = VecDeque::new();
+    let mut visited = HashSet::new();
+    queue.push_back(workspace_root.to_path_buf());
+    visited.insert(workspace_root.to_path_buf());
+
+    while let Some(dir) = queue.pop_front() {
+        let candidate = dir.join(module_leaf).join(BLUEPRINTS_DIR_NAME);
+        if candidate.is_dir() {
+            return Some(relativize_or_clone(workspace_root, candidate));
+        }
+
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if !file_type.is_dir() || file_type.is_symlink() {
+                continue;
+            }
+            if entry.file_name().to_str().is_some_and(should_skip_dir) {
+                continue;
+            }
+            let path = entry.path();
+            if visited.insert(path.clone()) {
+                queue.push_back(path);
+            }
+        }
     }
 
-    let (blueprints_dir, root_used) = locate_or_create_blueprints(&search_roots)?;
-    let package = infer_package_name(crate_name, crate_root.as_ref(), root_used.as_path());
+    resolve_existing_dir(workspace_root, PathBuf::from(BLUEPRINTS_DIR_NAME))
+}
 
-    Ok(BlueprintsContext {
-        package,
-        blueprints_dir,
+fn resolve_existing_dir(workspace_root: &Path, candidate: PathBuf) -> Option<PathBuf> {
+    if candidate.is_absolute() {
+        if candidate.is_dir() {
+            Some(candidate)
+        } else {
+            None
+        }
+    } else {
+        let abs = workspace_root.join(&candidate);
+        if abs.is_dir() { Some(candidate) } else { None }
+    }
+}
+
+pub(crate) fn relativize_or_clone(workspace_root: &Path, path: PathBuf) -> PathBuf {
+    path.strip_prefix(workspace_root)
+        .map(Path::to_path_buf)
+        .unwrap_or(path)
+}
+
+// ---------- Module/crate target resolution ----------
+
+/// Resolved target for implementation: a crate (package) and an optional module path inside it.
+pub(crate) struct TargetSpec {
+    pub(crate) workspace_root: PathBuf,
+    pub(crate) crate_name: String,
+    pub(crate) crate_root: PathBuf, // workspace-relative when possible
+    pub(crate) module_rel: Option<PathBuf>, // relative to crate_root
+}
+
+/// Strictly resolve by crate/package name only. No path fallback.
+pub(crate) fn resolve_target_from_crate(crate_name: &str) -> Result<TargetSpec> {
+    let workspace_root = find_workspace_root()?;
+    env::set_current_dir(&workspace_root).ok();
+    if let Some((name, crate_root)) = enumerate_workspace_crates(&workspace_root)
+        .into_iter()
+        .find(|(name, _)| name == crate_name)
+    {
+        Ok(TargetSpec {
+            workspace_root,
+            crate_name: name,
+            crate_root,
+            module_rel: None,
+        })
+    } else {
+        Err(anyhow!("crate '{crate_name}' not found in workspace"))
+    }
+}
+
+/// Strictly resolve by module path only. The path must exist and be within a crate.
+pub(crate) fn resolve_target_from_module_path(path: &str) -> Result<TargetSpec> {
+    let workspace_root = find_workspace_root()?;
+    env::set_current_dir(&workspace_root).ok();
+
+    let arg_path = Path::new(path);
+    let abs_path = if arg_path.is_absolute() {
+        arg_path.to_path_buf()
+    } else {
+        workspace_root.join(arg_path)
+    };
+
+    if !abs_path.exists() {
+        return Err(anyhow!("module path not found: {}", abs_path.display()));
+    }
+    let Some((crate_root_abs, crate_name)) = nearest_crate_root(&abs_path) else {
+        return Err(anyhow!(
+            "path '{}' is not inside a workspace crate",
+            abs_path.display()
+        ));
+    };
+    let crate_root_rel = relativize_or_clone(&workspace_root, crate_root_abs.clone());
+    let module_rel = abs_path.strip_prefix(&crate_root_abs).ok().and_then(|p| {
+        if p.as_os_str().is_empty() {
+            None
+        } else {
+            Some(p.to_path_buf())
+        }
+    });
+
+    Ok(TargetSpec {
+        workspace_root,
+        crate_name,
+        crate_root: crate_root_rel,
+        module_rel,
     })
 }
 
-fn resolve_module_dir(workspace_root: &Path, module_path: &str) -> Result<PathBuf> {
-    let candidate = PathBuf::from(module_path);
-    let joined = if candidate.is_absolute() {
-        candidate
+/// Prefer crate-root/blueprints when present; otherwise fall back to discovery.
+pub(crate) fn prepare_blueprints_for_crate(target: &TargetSpec) -> Result<BlueprintsContext> {
+    // Ensure CWD is workspace root for path stability
+    env::set_current_dir(&target.workspace_root).context("failed to switch to workspace root")?;
+
+    let crate_root_abs = if target.crate_root.is_absolute() {
+        target.crate_root.clone()
     } else {
-        workspace_root.join(&candidate)
+        target.workspace_root.join(&target.crate_root)
     };
-
-    if !joined.exists() {
-        return Err(anyhow!("module path '{}' does not exist", joined.display()));
-    }
-
-    if !joined.is_dir() {
-        return Err(anyhow!(
-            "module path '{}' is not a directory",
-            joined.display()
-        ));
-    }
-
-    let resolved = joined
-        .canonicalize()
-        .with_context(|| format!("failed to canonicalize {}", joined.display()))?;
-
-    if !resolved.starts_with(workspace_root) {
-        return Err(anyhow!(
-            "module path '{}' escapes the workspace root {}",
-            resolved.display(),
-            workspace_root.display()
-        ));
-    }
-
-    Ok(resolved)
-}
-
-fn resolve_crate_dir(workspace_root: &Path, crate_name: &str) -> Result<PathBuf> {
-    let candidate = PathBuf::from(crate_name);
-    let mut possibilities = Vec::new();
-
-    if candidate.is_absolute() {
-        possibilities.push(candidate);
+    let preferred = crate_root_abs.join(BLUEPRINTS_DIR_NAME);
+    let blueprints_dir = if preferred.is_dir() {
+        relativize_or_clone(&target.workspace_root, preferred)
+    } else if let Some(found) = locate_blueprints_dir(&target.workspace_root, &target.crate_name) {
+        found
+    } else if Path::new(BLUEPRINTS_DIR_NAME).is_dir() {
+        PathBuf::from(BLUEPRINTS_DIR_NAME)
     } else {
-        possibilities.push(workspace_root.join(&candidate));
-        possibilities.push(workspace_root.join("crates").join(&candidate));
-    }
-
-    for path in possibilities {
-        if path.exists() && path.is_dir() {
-            let resolved = path
-                .canonicalize()
-                .with_context(|| format!("failed to canonicalize {}", path.display()))?;
-
-            if !resolved.starts_with(workspace_root) {
-                return Err(anyhow!(
-                    "crate '{}' resolved to '{}' which escapes workspace root {}",
-                    crate_name,
-                    resolved.display(),
-                    workspace_root.display()
-                ));
-            }
-            return Ok(resolved);
-        }
-    }
-
-    Err(anyhow!(
-        "could not resolve crate '{}' relative to {}",
-        crate_name,
-        workspace_root.display()
-    ))
-}
-
-fn locate_or_create_blueprints(roots: &[PathBuf]) -> Result<(PathBuf, PathBuf)> {
-    assert!(!roots.is_empty(), "expected at least one search root");
-
-    for root in roots {
-        let candidate = root.join("blueprints");
-        if candidate.exists() {
-            return Ok((candidate, root.clone()));
-        }
-    }
-
-    let Some(primary) = roots.first() else {
-        unreachable!("expected at least one search root");
-    };
-    let blueprints_dir = primary.join("blueprints");
-    fs::create_dir_all(&blueprints_dir).with_context(|| {
-        format!(
-            "failed to create blueprints directory at {}",
-            blueprints_dir.display()
+        // Fallback: keep a relative path at crate root for future creation
+        relativize_or_clone(
+            &target.workspace_root,
+            crate_root_abs.join(BLUEPRINTS_DIR_NAME),
         )
-    })?;
+    };
 
-    Ok((blueprints_dir, primary.clone()))
+    Ok(BlueprintsContext { blueprints_dir })
 }
 
-fn infer_package_name(
-    explicit_crate: Option<&str>,
-    crate_root: Option<&PathBuf>,
-    root_used: &Path,
-) -> String {
-    if let Some(name) = explicit_crate {
-        return name.to_string();
-    }
+/// Enumerate all workspace crates by scanning for Cargo.toml with a [package] name.
+fn enumerate_workspace_crates(workspace_root: &Path) -> Vec<(String, PathBuf)> {
+    let mut crates = Vec::new();
+    let mut queue = VecDeque::new();
+    let mut visited = HashSet::new();
+    queue.push_back(workspace_root.to_path_buf());
+    visited.insert(workspace_root.to_path_buf());
 
-    if let Some(root) = crate_root {
-        if let Some(name) = read_package_name(root) {
-            return name;
+    while let Some(dir) = queue.pop_front() {
+        let manifest = dir.join("Cargo.toml");
+        if manifest.is_file()
+            && let Some(name) = read_package_name_from_manifest(&manifest)
+        {
+            crates.push((name, relativize_or_clone(workspace_root, dir.clone())));
         }
 
-        if let Some(name) = root.file_name().and_then(|s| s.to_str()) {
-            return name.to_string();
-        }
-    }
-
-    root_used
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("blueprints")
-        .to_string()
-}
-
-fn read_package_name(crate_root: &Path) -> Option<String> {
-    let manifest_path = crate_root.join("Cargo.toml");
-    let content = fs::read_to_string(manifest_path).ok()?;
-
-    let mut in_package = false;
-
-    for raw_line in content.lines() {
-        let line = raw_line.trim();
-
-        if line.is_empty() || line.starts_with('#') {
+        let Ok(entries) = fs::read_dir(&dir) else {
             continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(ft) = entry.file_type() else { continue };
+            if !ft.is_dir() || ft.is_symlink() {
+                continue;
+            }
+            if entry.file_name().to_str().is_some_and(should_skip_dir) {
+                continue;
+            }
+            let path = entry.path();
+            if visited.insert(path.clone()) {
+                queue.push_back(path);
+            }
         }
+    }
 
+    crates
+}
+
+/// Walk upward from `start` to find the nearest directory containing a Cargo.toml with a [package] name.
+fn nearest_crate_root(start: &Path) -> Option<(PathBuf, String)> {
+    let mut cur = if start.is_dir() {
+        start.to_path_buf()
+    } else {
+        start.parent()?.to_path_buf()
+    };
+
+    loop {
+        let manifest = cur.join("Cargo.toml");
+        if manifest.is_file()
+            && let Some(name) = read_package_name_from_manifest(&manifest)
+        {
+            return Some((cur, name));
+        }
+        if !(cur.pop()) {
+            break;
+        }
+    }
+    None
+}
+
+/// Minimal, line-oriented read of `[package] name = "..."` from a Cargo.toml manifest.
+fn read_package_name_from_manifest(manifest: &Path) -> Option<String> {
+    let content = fs::read_to_string(manifest).ok()?;
+    let mut in_package = false;
+    for raw in content.lines() {
+        let line = raw.trim();
         if line.starts_with('[') {
             in_package = line == "[package]";
             continue;
         }
-
-        if !in_package || !line.starts_with("name") {
+        if !in_package {
             continue;
         }
-
-        if let Some((_, value)) = line.split_once('=') {
-            let trimmed = value.trim().trim_matches('"');
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
+        if let Some(idx) = line.find('=') {
+            let key = line[..idx].trim();
+            if key == "name" {
+                let mut val = line[idx + 1..].trim();
+                if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
+                    val = &val[1..val.len() - 1];
+                }
+                if !val.is_empty() {
+                    return Some(val.to_string());
+                }
             }
         }
     }
-
     None
 }
 
-fn find_crate_root(start: &Path, workspace_root: &Path) -> Option<PathBuf> {
-    let mut current = if start.is_dir() {
-        start
-    } else {
-        start.parent()?
-    };
-
-    loop {
-        if current.join("Cargo.toml").is_file() {
-            return Some(current.to_path_buf());
-        }
-
-        if current == workspace_root {
-            break;
-        }
-
-        current = match current.parent() {
-            Some(parent) => parent,
-            None => break,
-        };
-    }
-
-    if workspace_root.join("Cargo.toml").is_file() {
-        Some(workspace_root.to_path_buf())
-    } else {
-        None
-    }
+fn should_skip_dir(name: &str) -> bool {
+    IGNORED_SEARCH_DIRS
+        .iter()
+        .any(|ignored| ignored.eq_ignore_ascii_case(name))
 }
 
 pub(crate) fn find_workspace_root() -> Result<PathBuf> {
@@ -579,7 +595,7 @@ pub(crate) fn run_codex(args: &[&str], prompt: &str) -> Result<CommandOutput> {
 
     let do_summarize = summarize_enabled();
 
-    let (summary_sender, summary_receiver) = if do_summarize {
+    let (summary_sender_opt, summary_receiver_opt) = if do_summarize {
         let (tx, rx) = mpsc::channel::<SummaryRequest>();
         (Some(tx), Some(rx))
     } else {
@@ -587,7 +603,7 @@ pub(crate) fn run_codex(args: &[&str], prompt: &str) -> Result<CommandOutput> {
     };
     let (stream_tx, stream_rx) = mpsc::channel::<StreamPacket>();
 
-    let summarizer_handle = summary_receiver.map(|summary_rx| {
+    let summarizer_handle = summary_receiver_opt.map(|summary_rx| {
         thread::spawn(move || -> Result<()> {
             while let Ok(request) = summary_rx.recv() {
                 let (chunk, final_update) = match request {
@@ -616,7 +632,7 @@ pub(crate) fn run_codex(args: &[&str], prompt: &str) -> Result<CommandOutput> {
         })
     });
 
-    let summary_sender_for_aggregator = summary_sender.clone();
+    let summary_tx_for_aggregator = summary_sender_opt.clone();
 
     let aggregator_handle = thread::spawn(move || -> Result<AggregatedOutput> {
         let summary_interval = Duration::from_secs(15);
@@ -627,14 +643,14 @@ pub(crate) fn run_codex(args: &[&str], prompt: &str) -> Result<CommandOutput> {
         let mut last_stdout_line = String::new();
         let mut stdout_closed = false;
         let mut stderr_closed = false;
-        let mut summary_sender = summary_sender_for_aggregator;
+        let mut summary_tx = summary_tx_for_aggregator;
 
         if do_summarize {
             while !(stdout_closed && stderr_closed) {
                 let remaining = summary_interval.saturating_sub(last_summary.elapsed());
 
                 if remaining.is_zero() {
-                    if let Some(tx) = summary_sender.as_ref()
+                    if let Some(tx) = summary_tx.as_ref()
                         && !chunk_buffer.trim().is_empty()
                     {
                         let chunk = std::mem::take(&mut chunk_buffer);
@@ -645,7 +661,6 @@ pub(crate) fn run_codex(args: &[&str], prompt: &str) -> Result<CommandOutput> {
                         io::stdout().flush().ok();
                     }
                     last_summary = Instant::now();
-                    continue;
                 }
 
                 match stream_rx.recv_timeout(remaining) {
@@ -672,7 +687,7 @@ pub(crate) fn run_codex(args: &[&str], prompt: &str) -> Result<CommandOutput> {
                         stderr_closed = true;
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        if let Some(tx) = summary_sender.as_ref()
+                        if let Some(tx) = summary_tx.as_ref()
                             && !chunk_buffer.trim().is_empty()
                         {
                             let chunk = std::mem::take(&mut chunk_buffer);
@@ -692,7 +707,7 @@ pub(crate) fn run_codex(args: &[&str], prompt: &str) -> Result<CommandOutput> {
             }
 
             if !chunk_buffer.trim().is_empty()
-                && let Some(tx) = summary_sender.take()
+                && let Some(tx) = summary_tx.take()
             {
                 tx.send(SummaryRequest::Final(chunk_buffer))
                     .map_err(|err| anyhow!(err))?;
@@ -791,7 +806,7 @@ pub(crate) fn run_codex(args: &[&str], prompt: &str) -> Result<CommandOutput> {
     });
 
     drop(stream_tx);
-    if let Some(summary_tx) = summary_sender {
+    if let Some(summary_tx) = summary_sender_opt {
         drop(summary_tx);
     }
 

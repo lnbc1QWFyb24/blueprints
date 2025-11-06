@@ -10,22 +10,30 @@ use std::{
 
 use super::common::{
     Tokens, WorkflowConfig, describe_exit, list_macos_sound_names, play_notification_chime_with,
-    prepare_blueprints, run_codex,
+    prepare_blueprints_for_crate, run_codex,
 };
 use crate::logging::log_blueprints;
-
-const BUILDER_PROMPT_TEMPLATE: &str = include_str!("../prompts/implement/BUILDER.md");
-const REVIEWER_PROMPT_TEMPLATE: &str = include_str!("../prompts/implement/REVIEWER.md");
+use crate::prompts::builder::Profile;
 
 #[derive(Args, Debug)]
 pub struct ImplementArgs {
-    /// Workspace crate package name.
-    #[arg(long = "crate", value_name = "crate", conflicts_with = "module_path")]
-    pub crate_name: Option<String>,
+    /// Target Cargo package name (crate)
+    #[arg(
+        long = "crate",
+        value_name = "PKG",
+        conflicts_with = "module",
+        required_unless_present = "module"
+    )]
+    pub krate: Option<String>,
 
-    /// Optional module path within the workspace (e.g. `crates/crate_b/module_a`).
-    #[arg(long = "module", value_name = "module-path")]
-    pub module_path: Option<String>,
+    /// Target module path (file or dir) inside a crate
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with = "krate",
+        required_unless_present = "krate"
+    )]
+    pub module: Option<String>,
 
     /// macOS system sound name to play on success
     #[arg(long)]
@@ -48,15 +56,65 @@ pub fn handle(args: &ImplementArgs) -> Result<()> {
     let tokens = Tokens::new();
     let config = WorkflowConfig::from_env()?;
 
-    let blueprints = prepare_blueprints(args.crate_name.as_deref(), args.module_path.as_deref())?;
-    let module = blueprints.module();
+    // Resolve target strictly from flags
+    let target = if let Some(name) = &args.krate {
+        super::common::resolve_target_from_crate(name)
+    } else if let Some(path) = &args.module {
+        super::common::resolve_target_from_module_path(path)
+    } else {
+        // Clap should enforce one of them; keep a defensive error.
+        return Err(anyhow!("specify exactly one of --crate or --module"));
+    }?;
+    let blueprints = prepare_blueprints_for_crate(&target)?;
+    let module = target.crate_name.as_str();
     let delivery_plan_path = blueprints.join("05-delivery-plan.md");
     let has_cargo_toml = Path::new("Cargo.toml").exists();
 
     let mut ci_state = CiState::default();
 
-    let reviewer_template = blueprints.apply(tokens.apply(REVIEWER_PROMPT_TEMPLATE));
-    let builder_template = blueprints.apply(tokens.apply(BUILDER_PROMPT_TEMPLATE));
+    let blueprint_dir_token = blueprints.dir_token_value();
+    // Compose additional scope tokens for prompts
+    let crate_root_token = {
+        let p = &target.crate_root;
+        let s = p.to_string_lossy();
+        if p.is_relative() && !s.starts_with("./") && !s.starts_with("../") {
+            format!("./{s}")
+        } else {
+            s.into_owned()
+        }
+    };
+    let module_rel_token = target.module_rel.as_ref().map(|p| {
+        let s = p.to_string_lossy();
+        if p.is_relative() && !s.starts_with("./") && !s.starts_with("../") {
+            format!("./{s}")
+        } else {
+            s.into_owned()
+        }
+    });
+
+    // Compose reviewer prompt (runtime) from modular sections + reviewer specifics
+    let mut reviewer_builder = Profile::ImplementReviewer
+        .compose()
+        .with_blueprints_dir(blueprint_dir_token.clone())
+        .with_variable("CRATE_NAME", target.crate_name.clone())
+        .with_variable("CRATE_ROOT", crate_root_token.clone())
+        .inline_blueprints();
+    if let Some(mrel) = &module_rel_token {
+        reviewer_builder = reviewer_builder.with_variable("MODULE_REL_PATH", mrel.clone());
+    }
+    let reviewer_template = tokens.apply(&reviewer_builder.build()?);
+
+    // Compose builder prompt (runtime) from modular sections + builder specifics
+    let mut builder_builder = Profile::ImplementBuilder
+        .compose()
+        .with_blueprints_dir(blueprint_dir_token)
+        .with_variable("CRATE_NAME", target.crate_name.clone())
+        .with_variable("CRATE_ROOT", crate_root_token);
+    if let Some(mrel) = module_rel_token {
+        builder_builder = builder_builder.with_variable("MODULE_REL_PATH", mrel);
+    }
+    builder_builder = builder_builder.inline_blueprints();
+    let builder_template = tokens.apply(&builder_builder.build()?);
 
     let mut review_cycle = 0usize;
     loop {
@@ -173,6 +231,7 @@ pub fn handle(args: &ImplementArgs) -> Result<()> {
                 &[
                     "exec",
                     "--model",
+                    // "gpt-5-codex",
                     "gpt-5-codex",
                     "--config",
                     "model_reasoning_effort='high'",
@@ -463,17 +522,7 @@ fn run_ci_fixer_loop(
 
         let prompt = format!("Fix the following CI errors: {feedback}");
         log_blueprints("RUNNING CI FIXER AGENT");
-        let fixer = run_codex(
-            &[
-                "exec",
-                "--model",
-                "gpt-5-codex",
-                "--config",
-                "model_reasoning_effort='high'",
-                "--full-auto",
-            ],
-            &prompt,
-        )?;
+        let fixer = run_codex(&["exec", "--profile", "builder", "--full-auto"], &prompt)?;
 
         if !fixer.status.success() {
             return Err(anyhow!(

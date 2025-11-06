@@ -1,15 +1,15 @@
 mod commands;
 mod logging;
+mod prompts;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use commands::prompts::{self as prompts_cmd, PromptsArgs};
 use commands::{
-    contracts::{self, ContractsArgs},
-    delivery::{self, DeliveryArgs},
+    design::{self, DesignArgs},
     implement::{self, ImplementArgs},
-    requirements::{self, RequirementsArgs},
-    specs::{self, SpecsArgs},
-    tests::{self, TestsArgs},
+    review::{self, ReviewArgs},
+    update::{self, UpdateArgs},
 };
 use logging::log_error;
 
@@ -30,16 +30,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Workflow for managing `blueprints/01-requirements.md` WHAT/WHY records (coming soon).
-    Requirements(RequirementsArgs),
-    /// Workflow for maintaining `blueprints/02-spec.md` HOW clauses (coming soon).
-    Specs(SpecsArgs),
-    /// Workflow for defining `blueprints/03-contracts.md` types and APIs (coming soon).
-    Contracts(ContractsArgs),
-    /// Workflow for curating `blueprints/04-test-vectors.md` canonical cases (coming soon).
-    Tests(TestsArgs),
-    /// Workflow for shaping the `blueprints/05-delivery-plan.md` checklist (coming soon).
-    Delivery(DeliveryArgs),
+    /// Design and create the complete blueprints set interactively.
+    Design(DesignArgs),
+    /// Review the entire blueprints set for quality and completeness.
+    Review(ReviewArgs),
+    /// Update the blueprints set interactively (adds/removes/edits + lifecycle).
+    Update(UpdateArgs),
+    /// Render the composed prompts for each workflow.
+    Prompts(PromptsArgs),
     /// Workflow that guides translating approved blueprints into code (coming soon).
     Implement(ImplementArgs),
 }
@@ -60,11 +58,10 @@ fn run() -> Result<()> {
     commands::common::set_summarize_enabled(cli.summarize);
 
     match cli.command {
-        Commands::Requirements(args) => requirements::handle(&args)?,
-        Commands::Specs(args) => specs::handle(&args)?,
-        Commands::Contracts(args) => contracts::handle(&args)?,
-        Commands::Tests(args) => tests::handle(&args)?,
-        Commands::Delivery(args) => delivery::handle(&args)?,
+        Commands::Design(args) => design::handle(&args)?,
+        Commands::Review(args) => review::handle(&args)?,
+        Commands::Update(args) => update::handle(&args)?,
+        Commands::Prompts(args) => prompts_cmd::handle(&args)?,
         Commands::Implement(args) => implement::handle(&args)?,
     }
 
