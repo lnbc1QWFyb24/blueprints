@@ -1,0 +1,11 @@
+[package]
+name = "blueprints"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0.91"
+clap = { version = "4.5.17", features = ["derive"] }
+nu-ansi-term = "0.49.0"
+time = { version = "0.3.36", features = ["formatting", "macros", "local-offset"] }
