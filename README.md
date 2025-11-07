@@ -94,10 +94,10 @@ Flags: optional targeting `--crate <name>`, `--module <path>`, sound options `--
 
 Use when generating and curating canonical test vectors in `04-test-vectors.md` and adjacent tests.
 
-- Run: `blueprints tests`
+- Run: `blueprints tests --module crates/crate_b/module_a`
   - Reviewer/Builder loop to propose test coverage and implement tests iteratively.
 
-Flags: `--sound <name>`, `--list-sounds`
+Flags: optional targeting `--crate <name>`, `--module <path>`, sound options `--sound <name>`, `--list-sounds`
 
 ### delivery
 

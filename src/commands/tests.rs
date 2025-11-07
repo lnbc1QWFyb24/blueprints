@@ -4,7 +4,7 @@ use std::thread;
 
 use super::common::{
     Tokens, WorkflowConfig, describe_exit, list_macos_sound_names, play_notification_chime_with,
-    run_codex,
+    prepare_blueprints, run_codex,
 };
 use crate::logging::log_blueprints;
 
@@ -13,6 +13,14 @@ const REVIEWER_PROMPT_TEMPLATE: &str = include_str!("../prompts/tests/REVIEWER.m
 
 #[derive(Args, Debug, Clone)]
 pub struct TestsArgs {
+    /// Workspace crate package name.
+    #[arg(long = "crate", value_name = "crate", conflicts_with = "module_path")]
+    pub crate_name: Option<String>,
+
+    /// Optional module path within the workspace (e.g. `crates/crate_b/module_a`).
+    #[arg(long = "module", value_name = "module-path")]
+    pub module_path: Option<String>,
+
     /// macOS system sound name to play on success
     #[arg(long)]
     pub sound: Option<String>,
@@ -34,8 +42,9 @@ pub fn handle(args: &TestsArgs) -> Result<()> {
     let tokens = Tokens::new();
     let config = WorkflowConfig::from_env()?;
 
-    let reviewer_prompt = tokens.apply(REVIEWER_PROMPT_TEMPLATE);
-    let builder_template = tokens.apply(BUILDER_PROMPT_TEMPLATE);
+    let blueprints = prepare_blueprints(args.crate_name.as_deref(), args.module_path.as_deref())?;
+    let reviewer_prompt = blueprints.apply(tokens.apply(REVIEWER_PROMPT_TEMPLATE));
+    let builder_template = blueprints.apply(tokens.apply(BUILDER_PROMPT_TEMPLATE));
 
     let mut review_cycle = 0usize;
     loop {
