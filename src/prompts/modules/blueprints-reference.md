@@ -9,7 +9,7 @@
 # Blueprints File Types
 
 - Requirements (`01-requirements.md`): one-line records, IDs `R-###` describing WHAT/WHY.
-- Spec (`02-specs.md`): strict clause lines `S-###(.n)` with `R:` references and `DO/IF/ER/LM/OB` as needed.
+- Spec (`02-specs.md`): strict clause lines `S-###(.n)` with `R:` references and `DO`, required `TITLE`, and optional `IF/ER/LM/OB` in canonical order.
 - Contracts (`03-contracts.md`): heading entries `### C-### — <Short Title>` with precise Rust types, external APIs (METHOD PATH), auth, request/response mapping, error types/codes, and doc links.
 - Test Vectors (`04-test-vectors.md`): concrete, deterministic cases referencing S-ids; include R and S references.
 - Delivery Plan (`05-delivery-plan.md`): actionable milestones and checklist items referencing R/S/C/TV.
@@ -35,3 +35,11 @@
   - `<ID> | STATUS:<active|deprecated|removed> | REASON:<short>[ | EFFECTIVE:<semver|date>][ | REPLACE_BY:<ID>]`
 - IDs may be `R-###`, `S-###` or `S-###.n`, `TV-###`, or `C-###`.
 - For deprecations/removals, always append a new ledger record rather than mutating prior entries.
+
+---
+
+# Additional Spec Rules
+
+- TITLE is mandatory: 4–7 words, ASCII, appears immediately after `DO:`; reused verbatim for Delivery Plan milestones.
+- Coverage lines (exemptions): `COVERAGE | R:R-###[,R-###...] | REASON:<short>`; disjoint from any `S-*` referencing the same `R-###`.
+- Creation-stage policy: during initial spec creation and upon explicit approval, you may delete/rewrite and then renumber sequentially from `S-001` (preserving `.n`); thereafter append only.

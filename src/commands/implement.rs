@@ -10,7 +10,7 @@ use std::{
 
 use super::common::{
     Tokens, WorkflowConfig, describe_exit, list_macos_sound_names, play_notification_chime_with,
-    prepare_blueprints_for_crate, run_codex,
+    prepare_blueprints_for_crate, prepare_blueprints_for_module, run_codex,
 };
 use crate::logging::log_blueprints;
 use crate::prompts::builder::Profile;
@@ -65,7 +65,11 @@ pub fn handle(args: &ImplementArgs) -> Result<()> {
         // Clap should enforce one of them; keep a defensive error.
         return Err(anyhow!("specify exactly one of --crate or --module"));
     }?;
-    let blueprints = prepare_blueprints_for_crate(&target)?;
+    let blueprints = if target.module_rel.is_some() {
+        prepare_blueprints_for_module(&target)?
+    } else {
+        prepare_blueprints_for_crate(&target)?
+    };
     let module = target.crate_name.as_str();
     let delivery_plan_path = blueprints.join("05-delivery-plan.md");
     let has_cargo_toml = Path::new("Cargo.toml").exists();

@@ -7,7 +7,7 @@ use std::{
 
 use super::common::{
     list_macos_sound_names, play_notification_chime_with, prepare_blueprints_for_crate,
-    resolve_target_from_crate, resolve_target_from_module_path,
+    prepare_blueprints_for_module, resolve_target_from_crate, resolve_target_from_module_path,
 };
 use crate::prompts::builder::Profile;
 
@@ -60,21 +60,25 @@ pub fn handle(args: &DesignArgs) -> Result<()> {
         ));
     };
 
-    // Ensure crate-root blueprints directory exists for design work
-    let crate_root_abs = if target.crate_root.is_absolute() {
-        target.crate_root.clone()
+    let blueprints = if target.module_rel.is_some() {
+        prepare_blueprints_for_module(&target)?
     } else {
-        target.workspace_root.join(&target.crate_root)
+        prepare_blueprints_for_crate(&target)?
     };
-    let target_dir = crate_root_abs.join("blueprints");
-    fs::create_dir_all(&target_dir).with_context(|| {
+    // Ensure the scoped blueprints directory exists before starting a design flow.
+    let blueprint_dir_path = blueprints.path();
+    let blueprint_dir_abs = if blueprint_dir_path.is_absolute() {
+        blueprint_dir_path.to_path_buf()
+    } else {
+        target.workspace_root.join(blueprint_dir_path)
+    };
+    fs::create_dir_all(&blueprint_dir_abs).with_context(|| {
         format!(
             "failed to create blueprints directory at {}",
-            target_dir.display()
+            blueprint_dir_abs.display()
         )
     })?;
 
-    let blueprints = prepare_blueprints_for_crate(&target)?;
     let blueprint_dir_token = blueprints.dir_token_value();
     let prompt = Profile::Design
         .compose()

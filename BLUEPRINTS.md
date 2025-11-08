@@ -2,10 +2,10 @@
 
 Blueprints describe everything about a crate except the code implementation. They are the source artifacts from which code is generated and validated. Each crate includes a `blueprints` directory with the files below.
 
-## Lifecycle Index (`00-lifecycle.md`)
+## Lifecycle Index (`06-lifecycle.md`)
 
 - Purpose: Machine-readable ledger of deprecations and removals across all blueprint files.
-- File: `blueprints/00-lifecycle.md`
+- File: `blueprints/06-lifecycle.md`
 - Scope: Records-only; ASCII; one record per line; non-destructive.
 - Record schema: `<ID> | STATUS:<active|deprecated|removed> | REASON:<short>[ | EFFECTIVE:<semver|date>][ | REPLACE_BY:<ID>]`
 - IDs: `<ID> ∈ R-### | S-###(.n)? | TV-### | C-###`
@@ -21,16 +21,22 @@ Blueprints describe everything about a crate except the code implementation. The
 - Content rules: No implementation details, invariants, statuses, metadata, or multi-sentence items.
 - Role: Source of truth for intent; Specs and tests derive from here.
 
-## Spec (`02-spec.md`)
+## Spec (`02-specs.md`)
 
 - Purpose: Define HOW to satisfy Requirements in a definitive, machine-readable way.
 - Format: Strict; records-only; ASCII; no headers/sections/tabs.
-- Clause schema (one per behavior): `S-###[.n] | R:R-###[,R-###...] | DO:<imperative, testable statement>[ | IF:<apis/types>][ | ER:<errors>][ | LM:<limits>][ | OB:<observability>]`
-- Validation (core): `^S-([0-9]{3}(\.[0-9]+)?) \| R:(R-[0-9]{3}(,R-[0-9]{3})*) \| DO:.+`
-- IDs: `S-###` or `S-###.n`; unique; append-only; never renumber; file order is authoritative.
+- Clause schema (one per behavior): `S-###[.n] | R:R-###[,R-###...] | DO:<imperative, testable statement> | TITLE:<concise, stable title>[ | IF:<apis/types>][ | ER:<errors>][ | LM:<limits>][ | OB:<observability>]`
+- Validation (core): `^S-([0-9]{3}(\.[0-9]+)?) \| R:(R-[0-9]{3}(,R-[0-9]{3})*) \| DO:([^|]+?) \| TITLE:([^|]+)( \| IF:[^|]+)?( \| ER:[^|]+)?( \| LM:[^|]+)?( \| OB:[^|]+)?$`
+- IDs: `S-###` or `S-###.n`; unique; append-only in general; file order is authoritative. Creation-stage policy: when initially creating the spec and upon explicit approval, you may delete/rewrite and then renumber sequentially from `S-001` (preserving `.n` suffixes where used).
 - Traceability: Each `S-*` references ≥1 `R-*`; every `R-*` is covered by ≥1 `S-*` when complete.
 - Writing: MVP-first; imperative `DO` statements; `IF/ER/LM/OB` only when essential to implement/test.
 - Editing policy: Agents may append/update `S` lines; preserve existing IDs; make atomic edits.
+
+### Coverage Lines (exemptions)
+
+- Schema: `COVERAGE | R:R-###[,R-###...] | REASON:<short>`
+- Validation: `^COVERAGE \| R:(R-[0-9]{3}(,R-[0-9]{3})*) \| REASON:[^|]+$`
+- Guidance: Prefer one requirement per COVERAGE line; if a requirement appears in any `S-*`, it must not appear in `COVERAGE` (disjointness). Use concise reasons like `policy-only`, `deferred-MVP`, `external`.
 
 ## Contracts (`03-contracts.md`)
 
@@ -91,7 +97,7 @@ Cross-references are mandatory at every level.
 ## Doc–Code Sync Policy
 
 - Blueprints drive code. If a code change introduces or modifies behavior, types, or external APIs that are not yet captured in the blueprints, update the relevant blueprint files in the same PR to re-establish alignment.
-- Update the appropriate files: `01-requirements.md`, `02-spec.md`, `03-contracts.md`, `04-test-vectors.md`, `05-delivery-plan.md`, and `00-lifecycle.md` when statuses change.
+- Update the appropriate files: `01-requirements.md`, `02-specs.md`, `03-contracts.md`, `04-test-vectors.md`, `05-delivery-plan.md`, and `06-lifecycle.md` when statuses change.
 - Do not merge code-only changes that diverge from the documented blueprints.
 
 ## Rule of Thumb

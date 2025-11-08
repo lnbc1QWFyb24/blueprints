@@ -20,6 +20,12 @@ pub fn get(slug: &str) -> Option<&'static str> {
         "workspace-constraints" => Some(include_str!("modules/workspace-constraints.md")),
         "tokens-output-protocol" => Some(include_str!("modules/tokens-output-protocol.md")),
 
+        // Builders for design-time flows
+        "requirements-builder" => Some(include_str!("modules/requirements-builder.md")),
+        "spec-builder" => Some(include_str!("modules/spec-builder.md")),
+        "test-vectors-builder" => Some(include_str!("modules/test-vectors-builder.md")),
+        "delivery-plan-builder" => Some(include_str!("modules/delivery-plan-builder.md")),
+
         _ => None,
     }
 }

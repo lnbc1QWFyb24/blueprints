@@ -22,6 +22,10 @@ pub enum Module {
     TokensOutputProtocol,
     ImplementBuilder,
     ImplementReviewer,
+    RequirementsBuilder,
+    SpecBuilder,
+    TestVectorsBuilder,
+    DeliveryPlanBuilder,
 }
 
 impl Module {
@@ -39,6 +43,10 @@ impl Module {
             Module::TokensOutputProtocol => "tokens-output-protocol",
             Module::ImplementBuilder => "implement-builder",
             Module::ImplementReviewer => "implement-reviewer",
+            Module::RequirementsBuilder => "requirements-builder",
+            Module::SpecBuilder => "spec-builder",
+            Module::TestVectorsBuilder => "test-vectors-builder",
+            Module::DeliveryPlanBuilder => "delivery-plan-builder",
         }
     }
 }
@@ -215,8 +223,9 @@ impl Profile {
     /// Callers may still append or insert more sections before building.
     pub fn compose(self) -> PromptBuilder {
         use Module::{
-            BlueprintsReference, DeliveryPlan, Design, ImplementBuilder, ImplementReviewer,
-            ImplementationStandards, InteractionStyle, ParsingRules, Review, TokensOutputProtocol,
+            BlueprintsReference, DeliveryPlan, DeliveryPlanBuilder, Design, ImplementBuilder,
+            ImplementReviewer, ImplementationStandards, InteractionStyle, ParsingRules,
+            RequirementsBuilder, Review, SpecBuilder, TestVectorsBuilder, TokensOutputProtocol,
             Update, WorkspaceConstraints,
         };
 
@@ -224,8 +233,14 @@ impl Profile {
         match self {
             Profile::Design => builder
                 .add_module(BlueprintsReference)
+                .add_module(ParsingRules)
                 .add_module(InteractionStyle)
-                .add_module(Design),
+                .add_module(Design)
+                .add_module(RequirementsBuilder)
+                .add_module(SpecBuilder)
+                .add_module(TestVectorsBuilder)
+                .add_module(DeliveryPlanBuilder)
+                .add_module(DeliveryPlan),
             Profile::Update => builder
                 .add_module(BlueprintsReference)
                 .add_module(ParsingRules)

@@ -13,6 +13,14 @@
 - Offer candidate answers/solutions with brief trade-offs to accelerate resolution.
 - Iterate until scope, constraints, and intent are clear enough to proceed.
 
+Q&A batching protocol
+
+- Ask in numbered batches of at most 5 questions at a time; maintain ascending numbering across batches.
+- For each question, include options scoped to the number: `<n>a)`, `<n>b)`, `<n>c)`, `<n>d) Something else — define`.
+- Bias suggestions toward minimal, MVP-first choices; include at least one explicit defer option in a–c.
+- Accept reply parsing patterns: `^\s*(\d+)\s*\.?\s*([a-dA-D])\s*$` (e.g., `2a`, `2.a`, `2. a`).
+- On empty or ambiguous answers, ask one clarifying question, then pick the minimal viable default and proceed.
+
 ---
 
 # Judgment and Escalation

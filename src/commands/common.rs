@@ -107,6 +107,10 @@ impl BlueprintsContext {
     pub(crate) fn join(&self, file: &str) -> PathBuf {
         self.blueprints_dir.join(file)
     }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.blueprints_dir
+    }
 }
 
 fn locate_blueprints_dir(workspace_root: &Path, module: &str) -> Option<PathBuf> {
@@ -242,8 +246,25 @@ pub(crate) fn resolve_target_from_module_path(path: &str) -> Result<TargetSpec> 
     })
 }
 
+enum ModuleBlueprintPreference {
+    ExistingOnly,
+    Always,
+}
+
 /// Prefer crate-root/blueprints when present; otherwise fall back to discovery.
 pub(crate) fn prepare_blueprints_for_crate(target: &TargetSpec) -> Result<BlueprintsContext> {
+    prepare_blueprints_internal(target, ModuleBlueprintPreference::ExistingOnly)
+}
+
+/// Prefer the resolved module directory, even if the blueprints directory does not exist yet.
+pub(crate) fn prepare_blueprints_for_module(target: &TargetSpec) -> Result<BlueprintsContext> {
+    prepare_blueprints_internal(target, ModuleBlueprintPreference::Always)
+}
+
+fn prepare_blueprints_internal(
+    target: &TargetSpec,
+    module_pref: ModuleBlueprintPreference,
+) -> Result<BlueprintsContext> {
     // Ensure CWD is workspace root for path stability
     env::set_current_dir(&target.workspace_root).context("failed to switch to workspace root")?;
 
@@ -252,19 +273,40 @@ pub(crate) fn prepare_blueprints_for_crate(target: &TargetSpec) -> Result<Bluepr
     } else {
         target.workspace_root.join(&target.crate_root)
     };
+    let module_blueprints_abs = target.module_rel.as_ref().and_then(|module_rel| {
+        let module_abs = crate_root_abs.join(module_rel);
+        let module_dir_abs = if module_abs.is_dir() {
+            Some(module_abs)
+        } else {
+            module_abs.parent().map(Path::to_path_buf)
+        }?;
+        Some(module_dir_abs.join(BLUEPRINTS_DIR_NAME))
+    });
+
     let preferred = crate_root_abs.join(BLUEPRINTS_DIR_NAME);
-    let blueprints_dir = if preferred.is_dir() {
-        relativize_or_clone(&target.workspace_root, preferred)
-    } else if let Some(found) = locate_blueprints_dir(&target.workspace_root, &target.crate_name) {
+    let module_hint = target
+        .module_rel
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| target.crate_name.clone());
+
+    let blueprints_dir = if let Some(existing_module) =
+        module_blueprints_abs.as_ref().filter(|path| path.is_dir())
+    {
+        relativize_or_clone(&target.workspace_root, existing_module.clone())
+    } else if preferred.is_dir() {
+        relativize_or_clone(&target.workspace_root, preferred.clone())
+    } else if let Some(found) = locate_blueprints_dir(&target.workspace_root, &module_hint) {
         found
     } else if Path::new(BLUEPRINTS_DIR_NAME).is_dir() {
         PathBuf::from(BLUEPRINTS_DIR_NAME)
+    } else if matches!(module_pref, ModuleBlueprintPreference::Always)
+        && let Some(module_abs) = module_blueprints_abs
+    {
+        relativize_or_clone(&target.workspace_root, module_abs)
     } else {
         // Fallback: keep a relative path at crate root for future creation
-        relativize_or_clone(
-            &target.workspace_root,
-            crate_root_abs.join(BLUEPRINTS_DIR_NAME),
-        )
+        relativize_or_clone(&target.workspace_root, preferred)
     };
 
     Ok(BlueprintsContext { blueprints_dir })

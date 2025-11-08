@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 
 use super::common::{
     list_macos_sound_names, play_notification_chime_with, prepare_blueprints_for_crate,
-    resolve_target_from_crate, resolve_target_from_module_path,
+    prepare_blueprints_for_module, resolve_target_from_crate, resolve_target_from_module_path,
 };
 use crate::prompts::builder::Profile;
 
@@ -46,7 +46,7 @@ pub fn handle(args: &UpdateArgs) -> Result<()> {
     }
     let sound = args.sound.as_deref();
 
-    // Resolve target strictly from flags and anchor at the crate's blueprints directory
+    // Resolve target strictly from flags and anchor at the scoped blueprints directory
     let target = if let Some(name) = &args.krate {
         resolve_target_from_crate(name)?
     } else if let Some(path) = &args.module {
@@ -56,7 +56,11 @@ pub fn handle(args: &UpdateArgs) -> Result<()> {
             "specify exactly one of --crate or --module"
         ));
     };
-    let blueprints = prepare_blueprints_for_crate(&target)?;
+    let blueprints = if target.module_rel.is_some() {
+        prepare_blueprints_for_module(&target)?
+    } else {
+        prepare_blueprints_for_crate(&target)?
+    };
     let prompt = Profile::Update
         .compose()
         .with_blueprints_dir(blueprints.dir_token_value())
