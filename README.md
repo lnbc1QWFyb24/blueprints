@@ -74,7 +74,7 @@ Flags: (required) `--mode <design|update>`; optional targeting `--crate <name>`,
 
 ### specs
 
-Use when drafting or updating the definitive HOW in `02-spec.md`.
+Use when drafting or updating the definitive HOW in `02-specs.md`.
 
 - Design: `blueprints specs --crate crate_a --mode design`
 - Update: `blueprints specs --module crates/crate_b/module_a --mode update`

@@ -270,6 +270,35 @@ pub(crate) fn prepare_blueprints_for_crate(target: &TargetSpec) -> Result<Bluepr
     Ok(BlueprintsContext { blueprints_dir })
 }
 
+/// Prefer module-root/blueprints when a module path is provided; otherwise fall back to crate-root.
+pub(crate) fn prepare_blueprints_for_module(target: &TargetSpec) -> Result<BlueprintsContext> {
+    // Ensure CWD is workspace root for path stability
+    env::set_current_dir(&target.workspace_root).context("failed to switch to workspace root")?;
+
+    let crate_root_abs = if target.crate_root.is_absolute() {
+        target.crate_root.clone()
+    } else {
+        target.workspace_root.join(&target.crate_root)
+    };
+
+    // Determine the module root: if the provided module path is a file, use its parent; if a dir, use it.
+    let module_root_abs = if let Some(rel) = &target.module_rel {
+        let abs = crate_root_abs.join(rel);
+        if abs.is_dir() {
+            abs
+        } else {
+            abs.parent().map(Path::to_path_buf).unwrap_or(crate_root_abs)
+        }
+    } else {
+        crate_root_abs
+    };
+
+    let preferred = module_root_abs.join(BLUEPRINTS_DIR_NAME);
+    let blueprints_dir = relativize_or_clone(&target.workspace_root, preferred);
+
+    Ok(BlueprintsContext { blueprints_dir })
+}
+
 /// Enumerate all workspace crates by scanning for Cargo.toml with a [package] name.
 fn enumerate_workspace_crates(workspace_root: &Path) -> Vec<(String, PathBuf)> {
     let mut crates = Vec::new();

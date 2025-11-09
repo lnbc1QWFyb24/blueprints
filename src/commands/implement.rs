@@ -65,7 +65,12 @@ pub fn handle(args: &ImplementArgs) -> Result<()> {
         // Clap should enforce one of them; keep a defensive error.
         return Err(anyhow!("specify exactly one of --crate or --module"));
     }?;
-    let blueprints = prepare_blueprints_for_crate(&target)?;
+    // Prefer module-level blueprints when a module path is provided; otherwise fall back to crate-level
+    let blueprints = if target.module_rel.is_some() {
+        super::common::prepare_blueprints_for_module(&target)?
+    } else {
+        prepare_blueprints_for_crate(&target)?
+    };
     let module = target.crate_name.as_str();
     let delivery_plan_path = blueprints.join("05-delivery-plan.md");
     let has_cargo_toml = Path::new("Cargo.toml").exists();
@@ -137,6 +142,8 @@ pub fn handle(args: &ImplementArgs) -> Result<()> {
                 "gpt-5",
                 "--config",
                 "model_reasoning_effort='high'",
+                "--config",
+                "web_search_request=true",
                 "--full-auto",
             ],
             &reviewer_prompt,
@@ -235,6 +242,8 @@ pub fn handle(args: &ImplementArgs) -> Result<()> {
                     "gpt-5-codex",
                     "--config",
                     "model_reasoning_effort='high'",
+                    "--config",
+                    "web_search_request=true",
                     "--full-auto",
                 ],
                 &builder_prompt,

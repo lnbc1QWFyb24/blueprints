@@ -224,7 +224,9 @@ impl Profile {
         match self {
             Profile::Design => builder
                 .add_module(BlueprintsReference)
+                .add_module(ParsingRules)
                 .add_module(InteractionStyle)
+                .add_module(DeliveryPlan)
                 .add_module(Design),
             Profile::Update => builder
                 .add_module(BlueprintsReference)

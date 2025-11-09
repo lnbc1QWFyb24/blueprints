@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Args;
 
 use super::common::{
-    Tokens, prepare_blueprints_for_crate, resolve_target_from_crate,
+    Tokens, prepare_blueprints_for_crate, prepare_blueprints_for_module, resolve_target_from_crate,
     resolve_target_from_module_path,
 };
 use crate::prompts::builder::Profile;
@@ -36,7 +36,12 @@ pub fn handle(args: &PromptsArgs) -> Result<()> {
     } else {
         anyhow::bail!("specify exactly one of --crate or --module");
     };
-    let blueprints = prepare_blueprints_for_crate(&target)?;
+    // Prefer module-level blueprints when a module path is provided; otherwise fall back to crate-level
+    let blueprints = if target.module_rel.is_some() {
+        prepare_blueprints_for_module(&target)?
+    } else {
+        prepare_blueprints_for_crate(&target)?
+    };
     let dir_token = blueprints.dir_token_value();
     let crate_root_token = {
         let p = &target.crate_root;
