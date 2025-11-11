@@ -2,10 +2,10 @@
 
 Blueprints describe everything about a crate except the code implementation. They are the source artifacts from which code is generated and validated. Each crate includes a `blueprints` directory with the files below.
 
-## Lifecycle Index (`00-lifecycle.md`)
+## Lifecycle Index (`06-lifecycle.md`)
 
 - Purpose: Machine-readable ledger of deprecations and removals across all blueprint files.
-- File: `blueprints/00-lifecycle.md`
+- File: `blueprints/06-lifecycle.md`
 - Scope: Records-only; ASCII; one record per line; non-destructive.
 - Record schema: `<ID> | STATUS:<active|deprecated|removed> | REASON:<short>[ | EFFECTIVE:<semver|date>][ | REPLACE_BY:<ID>]`
 - IDs: `<ID> ∈ R-### | S-###(.n)? | TV-### | C-###`
@@ -91,7 +91,7 @@ Cross-references are mandatory at every level.
 ## Doc–Code Sync Policy
 
 - Blueprints drive code. If a code change introduces or modifies behavior, types, or external APIs that are not yet captured in the blueprints, update the relevant blueprint files in the same PR to re-establish alignment.
-- Update the appropriate files: `01-requirements.md`, `02-spec.md`, `03-contracts.md`, `04-test-vectors.md`, `05-delivery-plan.md`, and `00-lifecycle.md` when statuses change.
+- Update the appropriate files: `01-requirements.md`, `02-spec.md`, `03-contracts.md`, `04-test-vectors.md`, `05-delivery-plan.md`, and `06-lifecycle.md` when statuses change.
 - Do not merge code-only changes that diverge from the documented blueprints.
 
 ## Rule of Thumb

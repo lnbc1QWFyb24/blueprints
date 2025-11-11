@@ -1,13 +1,13 @@
 # Build Minimal, Machine-Readable Test Vectors
 
 GOAL
-- Apply the Implementation Plan to create/update ./blueprints/04-test-vectors.md using a compact, line-based format for MVP coverage.
+- Apply the Implementation Plan to create/update ${BLUEPRINTS_DIR}/04-test-vectors.md using a compact, line-based format for MVP coverage.
 
 INPUTS (read-only)
-- Spec: ./blueprints/02-spec.md
-- Requirements: ./blueprints/01-requirements.md
-- Contracts (may be missing or empty): ./blueprints/03-contracts.md (handwritten Markdown with `C-###` items)
-- Test Vectors (may be missing): ./blueprints/04-test-vectors.md
+- Spec: ${BLUEPRINTS_DIR}/02-spec.md
+- Requirements: ${BLUEPRINTS_DIR}/01-requirements.md
+- Contracts (may be missing or empty): ${BLUEPRINTS_DIR}/03-contracts.md (handwritten Markdown with `C-###` items)
+- Test Vectors (may be missing): ${BLUEPRINTS_DIR}/04-test-vectors.md
 - Implementation Plan: between ---PLAN START--- and ---PLAN END--- below
 
 PARSING (fast, exact)
@@ -42,7 +42,7 @@ ACTIONS
     -> Replace the entire line for that TV-###.
   - REMOVE TV-###
     -> Delete that line; if TV-### does not exist, perform a no-op (idempotent).
-- Create ./blueprints if missing. Create the file if missing.
+- Create ${BLUEPRINTS_DIR} if missing. Create the file if missing.
 - Ensure idempotency: deduplicate; keep lines sorted ascending by TV id; validate against the regex and fix minor spacing.
 - Ordering semantics (clarified):
   - Test Vector file is always sorted by `TV-###` ascending.

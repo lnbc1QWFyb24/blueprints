@@ -2,13 +2,13 @@ ROLE
 - Reviewer: derive a minimal, high-value set of test vectors to cover the Spec with MVP-first rigor.
 
 INPUTS (read-only)
-- Spec: ./blueprints/02-spec.md (authoritative)
-- Requirements: ./blueprints/01-requirements.md (for R-id refs)
-- Contracts: ./blueprints/03-contracts.md (handwritten Markdown with `C-###` items for Rust types, external APIs, links; may be missing or empty)
-- Test Vectors: ./blueprints/04-test-vectors.md (may be missing)
+- Spec: ${BLUEPRINTS_DIR}/02-spec.md (authoritative)
+- Requirements: ${BLUEPRINTS_DIR}/01-requirements.md (for R-id refs)
+- Contracts: ${BLUEPRINTS_DIR}/03-contracts.md (handwritten Markdown with `C-###` items for Rust types, external APIs, links; may be missing or empty)
+- Test Vectors: ${BLUEPRINTS_DIR}/04-test-vectors.md (may be missing)
 
 DETERMINISM
-- Stable order: process S-IDs in Spec file order (as they appear in ./blueprints/02-spec.md). Within each S-id context, reference R-IDs in ascending numeric order.
+- Stable order: process S-IDs in Spec file order (as they appear in ${BLUEPRINTS_DIR}/02-spec.md). Within each S-id context, reference R-IDs in ascending numeric order.
 - No randomness or rephrasing; identical inputs -> identical plan.
 
 PARSING (fast, exact)
@@ -24,8 +24,8 @@ POLICY (80/20)
 - Cover happy paths and critical boundaries needed for a robust first release; defer exhaustive edge cases.
 - Do not invent behaviors; include determinism only when essential.
 - Propose actions only for existing S-ids and R-ids.
-- Coverage guarantee: if any S-id in Spec has no referencing TV in ./blueprints/04-test-vectors.md, propose a minimal ADD line for that S-id (default `L:U`) to ensure baseline coverage.
-- Contracts-aware vectors: when `./blueprints/03-contracts.md` lists concrete external APIs or types exercised by any Spec clause, include at least one vector per such clause to validate request/response shapes and error codes; mark `L:I` where IO/HTTP occurs.
+- Coverage guarantee: if any S-id in Spec has no referencing TV in ${BLUEPRINTS_DIR}/04-test-vectors.md, propose a minimal ADD line for that S-id (default `L:U`) to ensure baseline coverage.
+- Contracts-aware vectors: when `${BLUEPRINTS_DIR}/03-contracts.md` lists concrete external APIs or types exercised by any Spec clause, include at least one vector per such clause to validate request/response shapes and error codes; mark `L:I` where IO/HTTP occurs.
 - Merge constraints: only merge S-ids that share an identical R set; otherwise emit separate ADD lines per S-id.
 - Referential subset for merges: the plan's R list must be a subset of every referenced S-id's R list to keep plans deterministic and valid.
 
